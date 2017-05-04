@@ -14,8 +14,19 @@ import java.util.*
 
 data class Entry<out K, out V>(override val key: K, override val value: V): Map.Entry<K, V>
 
-class ServerData(server: IGuild): Map<String, DataSource> {
-    val dir = File("server_data${File.separator}${server.id}")
+class ServerData private constructor(val server: Long): Map<String, DataSource> {
+    companion object {
+        val INSTANCES = HashMap<Long, ServerData>()
+
+        operator fun invoke(id: Long): ServerData = getInstance(id)
+        fun getInstance(id: Long): ServerData {
+            if(!INSTANCES.containsKey(id))
+                INSTANCES[id] = ServerData(id)
+            return INSTANCES[id]!!
+        }
+    }
+
+    val dir = File("server_data${File.separator}$server")
 
     override val entries: Set<Map.Entry<String, DataSource>>
         get() {
@@ -60,6 +71,12 @@ class ServerData(server: IGuild): Map<String, DataSource> {
 
     override fun isEmpty(): Boolean = dir.iterate(false).isEmpty()
 
+    override fun equals(other: Any?): Boolean = if(other == null) false else other.hashCode() == hashCode()
+
+    override fun hashCode(): Int = server.hashCode()
+
+    override fun toString(): String = "Server Data for ID $server"
+
     init {
         if(!dir.exists())
             dir.mkdirs()
@@ -70,7 +87,7 @@ class ServerDataAnnouncement(server: IGuild): Announcement<ServerData> {
     companion object {
         val name = "Server Data"
     }
-    val serverData = ServerData(server)
+    val serverData = server.serverData
 
     override fun getInfo(): ServerData = serverData
 
@@ -88,3 +105,6 @@ class ServerDataScout: Scout {
 
     override fun setImperator(imperator: Imperator) {}
 }
+
+val IGuild.serverData: ServerData
+    get() = ServerData.getInstance(this.longID)
