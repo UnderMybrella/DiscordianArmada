@@ -75,7 +75,7 @@ class MessageOrder(event: Event): DiscordOrder(event) {
     val client: IDiscordClient = event.client
     var params: Array<String> = arrayOf() //Made a var so that it *can* be modified by things like the MikuCommand in v4
 
-    var languageManager: (MessageOrder, MessageRequest) -> MessageRequest = { order, request -> request }
+    var languageManager: (MessageOrder, MessageRequest) -> MessageRequest = { _, request -> request }
 
     fun sendReply(content: String): IMessage = sendReply(MessageRequest(content, msg.channel))
     fun sendReply(content: String, embed: EmbedObject): IMessage = sendReply(MessageRequest(content, msg.channel, embed))
@@ -97,7 +97,7 @@ class MessageOrder(event: Event): DiscordOrder(event) {
         server = msg.guild
         channel = msg.channel
         author = msg.author
-        prefix = server.getPrefix()
+        prefix = server.prefix
         params = getParams()
     }
 
@@ -127,11 +127,12 @@ class MessageSpy: Spy {
 }
 
 class PrefixCommandWatchtower(val command: String, val getParams: (String) -> Array<String> = { msg -> msg.splitOutsideGroup() }): Watchtower {
-    override fun allow(order: Order): Boolean = order is MessageOrder && order.msg.content.startsWith("${order.server.getPrefix()}$command")
+    override fun allow(order: Order): Boolean = order is MessageOrder && order.msg.content.startsWith("${order.server.prefix}$command")
 
     override fun getName(): String = command
 }
 
-fun IGuild.getPrefix(): String = String(ServerData(this)["prefix.txt"]?.getData() ?: "-".toByteArray(Charsets.UTF_8), Charsets.UTF_8)
+val IGuild.prefix: String
+    get() = String(serverData["prefix.txt"]?.getData() ?: "-".toByteArray(Charsets.UTF_8), Charsets.UTF_8)
 val IUser.privateChannel: IPrivateChannel
     get() = RequestBuffer.request(RequestBuffer.IRequest { orCreatePMChannel }).get()
