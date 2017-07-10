@@ -11,7 +11,10 @@ import sx.blah.discord.api.events.IListener
 import sx.blah.discord.api.internal.json.objects.EmbedObject
 import sx.blah.discord.handle.impl.events.guild.channel.message.MessageReceivedEvent
 import sx.blah.discord.handle.impl.events.guild.channel.message.MessageUpdateEvent
-import sx.blah.discord.handle.obj.*
+import sx.blah.discord.handle.obj.IChannel
+import sx.blah.discord.handle.obj.IGuild
+import sx.blah.discord.handle.obj.IMessage
+import sx.blah.discord.handle.obj.IUser
 import sx.blah.discord.util.RequestBuffer
 import java.util.*
 
@@ -66,26 +69,61 @@ class MessageRequest(val content: String, val channel: IChannel, val embed: Embe
     override fun request(): IMessage = channel.sendMessage(content, embed, false)
 }
 
-class MessageOrder(event: Event): DiscordOrder(event) {
+interface MessageOrder: Order {
     val msg: IMessage
-    val server: IGuild
     val channel: IChannel
     val author: IUser
+    val client: IDiscordClient
+
+    var params: Array<String>
     var prefix: String
-    val client: IDiscordClient = event.client
-    var params: Array<String> = arrayOf() //Made a var so that it *can* be modified by things like the MikuCommand in v4
+    var languageManager: (MessageOrder, MessageRequest) -> MessageRequest
 
-    var languageManager: (MessageOrder, MessageRequest) -> MessageRequest = { _, request -> request }
+    val content: String
+}
 
-    fun sendReply(content: String): IMessage = sendReply(MessageRequest(content, msg.channel))
-    fun sendReply(content: String, embed: EmbedObject): IMessage = sendReply(MessageRequest(content, msg.channel, embed))
+class PrivateMessageOrder(event: Event): DiscordOrder(event), MessageOrder {
+    override val msg: IMessage
+    override val channel: IChannel
+    override val author: IUser
+    override val client: IDiscordClient = event.client
 
-    fun sendPrivateReply(content: String): IMessage = sendReply(MessageRequest(content, msg.author.privateChannel))
-    fun sendPrivateReply(content: String, embed: EmbedObject): IMessage = sendReply(MessageRequest(content, msg.author.privateChannel, embed))
+    override var prefix: String = "-"
+    override var params: Array<String> = arrayOf() //Made a var so that it *can* be modified by things like the MikuCommand in v4
+    override var languageManager: (MessageOrder, MessageRequest) -> MessageRequest = { _, request -> request }
 
-    fun sendReply(message: MessageRequest): IMessage = RequestBuffer.request(languageManager.invoke(this, message)).get()
+    override val content: String
+        get() = if(msg.content == null) "" else if(msg.content.startsWith(prefix)) msg.content.substring(prefix.length) else msg.content
 
-    fun delete() = RequestBuffer.request { msg.delete() }
+    init {
+        when(event) {
+            is MessageReceivedEvent -> msg = event.message
+            is MessageUpdateEvent -> msg = event.newMessage
+            else -> throw IllegalArgumentException("$event is not a MessageReceived Event")
+        }
+
+        channel = msg.channel
+        author = msg.author
+        params = getParams()
+    }
+
+    fun getParams(paramSplitter: (String) -> Array<String> = { msg -> msg.splitOutsideGroup() }): Array<String> = paramSplitter(content)
+}
+
+class ServerMessageOrder(event: Event): DiscordOrder(event), MessageOrder {
+    override val msg: IMessage
+    override val channel: IChannel
+    override val author: IUser
+    override val client: IDiscordClient = event.client
+
+    override var prefix: String = "-"
+    override var params: Array<String> = arrayOf() //Made a var so that it *can* be modified by things like the MikuCommand in v4
+    override var languageManager: (MessageOrder, MessageRequest) -> MessageRequest = { _, request -> request }
+
+    override val content: String
+        get() = if(msg.content == null) "" else if(msg.content.startsWith(prefix)) msg.content.substring(prefix.length) else msg.content
+
+    val server: IGuild
 
     init {
         when(event) {
@@ -101,22 +139,44 @@ class MessageOrder(event: Event): DiscordOrder(event) {
         params = getParams()
     }
 
-    fun getContent(): String = if(msg.content == null) "" else if(msg.content.startsWith(prefix)) msg.content.substring(prefix.length) else msg.content
-    fun getParams(paramSplitter: (String) -> Array<String> = { msg -> msg.splitOutsideGroup() }): Array<String> = paramSplitter.invoke(getContent())
+    fun getParams(paramSplitter: (String) -> Array<String> = { msg -> msg.splitOutsideGroup() }): Array<String> = paramSplitter(content)
 }
 
 class MessageSpy: Spy {
-    val watchtower: Set<Watchtower> = Collections.singleton(InstanceWatchtower<DiscordOrder>("Message Events", message@{ order ->
-        when(order.event) {
-            is MessageReceivedEvent -> return@message !order.event.channel.isPrivate
-            is MessageUpdateEvent -> return@message !order.event.channel.isPrivate
-            else -> return@message false
-        }
-    }))
+//    val watchtower: Set<Watchtower> = Collections.singleton(InstanceWatchtower<DiscordOrder>("Message Events", message@{ order ->
+//        when(order.event) {
+//            is MessageReceivedEvent -> return@message !order.event.channel.isPrivate
+//            is MessageUpdateEvent -> return@message !order.event.channel.isPrivate
+//            else -> return@message false
+//        }
+//    }))
+
+    val watchtower: Set<Watchtower> = Collections.singleton(InstanceWatchtower<DiscordOrder>("Message Events", message@{ order -> order.event is MessageReceivedEvent || order.event is MessageUpdateEvent }))
 
     override fun fiddle(order: Order): Order {
-        val msg = MessageOrder((order as DiscordOrder).event)
-        if(msg.author.isBot)
+//        val msg = MessageOrder((order as DiscordOrder).event)
+//        if(msg.author.isBot)
+//            return order
+//        return msg
+
+        val event = (order as DiscordOrder).event
+        var msg: MessageOrder? = null
+        when(event) {
+            is MessageReceivedEvent -> {
+                if(event.channel.isPrivate || event.guild == null)
+                    msg = PrivateMessageOrder(event)
+                else
+                    msg = ServerMessageOrder(event)
+            }
+            is MessageUpdateEvent -> {
+                if(event.channel.isPrivate || event.guild == null)
+                    msg = PrivateMessageOrder(event)
+                else
+                    msg = ServerMessageOrder(event)
+            }
+        }
+
+        if(msg == null || msg.author.isBot)
             return order
         return msg
     }
@@ -127,12 +187,10 @@ class MessageSpy: Spy {
 }
 
 class PrefixCommandWatchtower(val command: String, val getParams: (String) -> Array<String> = { msg -> msg.splitOutsideGroup() }): Watchtower {
-    override fun allow(order: Order): Boolean = order is MessageOrder && order.msg.content.startsWith("${order.server.prefix}$command")
+    override fun allow(order: Order): Boolean = order is MessageOrder && order.params[0] == "${order.prefix}$command"
 
     override fun getName(): String = command
 }
 
 val IGuild.prefix: String
-    get() = String(serverData["prefix.txt"]?.getData() ?: "-".toByteArray(Charsets.UTF_8), Charsets.UTF_8)
-val IUser.privateChannel: IPrivateChannel
-    get() = RequestBuffer.request(RequestBuffer.IRequest { orCreatePMChannel }).get()
+    get() = String(serverData["prefix.txt"]?.data ?: "-".toByteArray(Charsets.UTF_8), Charsets.UTF_8)

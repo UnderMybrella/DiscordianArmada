@@ -54,7 +54,7 @@ class ServerData private constructor(val server: Long): Map<String, DataSource> 
     override fun containsValue(value: DataSource): Boolean {
         if(value is FileDataSource && value.file.exists())
             return true
-        return dir.iterate(false).any { file -> FileDataSource(file).getInputStream().check(value.getInputStream()) }
+        return dir.iterate(false).any { file -> FileDataSource(file).inputStream.check(value.inputStream) }
     }
 
     override fun get(key: String): DataSource? {
@@ -97,7 +97,7 @@ class ServerDataAnnouncement(server: IGuild): Announcement<ServerData> {
 class ServerDataScout: Scout {
 
     override fun addAnnouncements(order: Order) {
-        if(order is MessageOrder)
+        if(order is ServerMessageOrder)
             order.addAnnouncement(ServerDataAnnouncement(order.server))
     }
 
