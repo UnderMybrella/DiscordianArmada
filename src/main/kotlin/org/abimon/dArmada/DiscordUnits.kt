@@ -181,7 +181,7 @@ class MessageSpy: Spy {
         return msg
     }
 
-    override fun getName(): String = "Message Spy"
+    override fun getName(): String = "That message's a spy!"
 
     override fun getWatchtowers(): Collection<Watchtower> = watchtower
 }
