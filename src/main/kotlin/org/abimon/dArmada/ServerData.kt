@@ -4,19 +4,18 @@ import org.abimon.imperator.handle.Announcement
 import org.abimon.imperator.handle.Imperator
 import org.abimon.imperator.handle.Order
 import org.abimon.imperator.handle.Scout
-import org.abimon.visi.io.DataSource
-import org.abimon.visi.io.FileDataSource
-import org.abimon.visi.io.check
-import org.abimon.visi.io.iterate
+import org.abimon.visi.io.*
 import sx.blah.discord.handle.obj.IGuild
 import java.io.File
 import java.util.*
 
-data class Entry<out K, out V>(override val key: K, override val value: V): Map.Entry<K, V>
+typealias Entry<K, V> = AbstractMap.SimpleEntry<K, V>
 
 class ServerData private constructor(val server: Long): Map<String, DataSource> {
     companion object {
         val INSTANCES = HashMap<Long, ServerData>()
+        var ENCRYPT: (ByteArray, Long, String) -> ByteArray = { data, _, _ -> data }
+        var DECRYPT: (ByteArray, Long, String) -> ByteArray = { data, _, _ -> data }
 
         operator fun invoke(id: Long): ServerData = getInstance(id)
         fun getInstance(id: Long): ServerData {
@@ -31,13 +30,13 @@ class ServerData private constructor(val server: Long): Map<String, DataSource> 
     override val entries: Set<Map.Entry<String, DataSource>>
         get() {
             val set = HashSet<Map.Entry<String, DataSource>>()
-            dir.iterate(false).forEach { file -> set.add(Entry(file.absolutePath.replace("${dir.absolutePath}${File.separator}", ""), FileDataSource(file))) }
+            dir.iterate(false).forEach { file -> set.add(Entry(file relativePathFrom dir, FunctionDataSource { DECRYPT(file.readBytes(), server, file relativePathFrom dir) } )) }
             return set
         }
     override val keys: Set<String>
         get() {
             val set = HashSet<String>()
-            dir.iterate(false).forEach { file -> set.add(file.absolutePath.replace("${dir.absolutePath}${File.separator}", "")) }
+            dir.iterate(false).forEach { file -> set.add(file relativePathFrom dir) }
             return set
         }
     override val size: Int
@@ -45,7 +44,7 @@ class ServerData private constructor(val server: Long): Map<String, DataSource> 
     override val values: Collection<DataSource>
         get() {
             val list = ArrayList<DataSource>()
-            dir.iterate(false).forEach { file -> list.add(FileDataSource(file)) }
+            dir.iterate(false).forEach { file -> list.add(FunctionDataSource { DECRYPT(file.readBytes(), server, file relativePathFrom dir) }) }
             return list
         }
 
@@ -54,19 +53,19 @@ class ServerData private constructor(val server: Long): Map<String, DataSource> 
     override fun containsValue(value: DataSource): Boolean {
         if(value is FileDataSource && value.file.exists())
             return true
-        return dir.iterate(false).any { file -> FileDataSource(file).inputStream.check(value.inputStream) }
+        return dir.iterate(false).any { file -> FunctionDataSource { DECRYPT(file.readBytes(), server, file relativePathFrom dir) }.inputStream.check(value.inputStream) }
     }
 
     override fun get(key: String): DataSource? {
         val file = File(dir, key)
         if(file.exists())
-            return FileDataSource(file)
+            return FunctionDataSource { DECRYPT(file.readBytes(), server, file relativePathFrom dir) }
         return null
     }
 
     operator fun set(key: String, data: ByteArray) {
         val file = File(dir, key)
-        file.writeBytes(data)
+        file.writeBytes(ENCRYPT(data, server, key))
     }
 
     override fun isEmpty(): Boolean = dir.iterate(false).isEmpty()
