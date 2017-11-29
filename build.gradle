@@ -1,14 +1,11 @@
-group 'org.abimon'
-version '1.0'
-
 buildscript {
-    ext.kotlin_version = '1.2-M2'
+    ext.kotlin_version = '1.2.0'
+    ext.discord_version = '2.9.2'
+    ext.imperator_build = '7'
+    ext.visi_build = '32'
 
     repositories {
         mavenCentral()
-        jcenter()
-        maven { url 'https://jitpack.io' }
-        maven { url 'http://dl.bintray.com/kotlin/kotlin-eap-1.2' }
     }
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
@@ -19,20 +16,30 @@ apply plugin: 'java'
 apply plugin: 'kotlin'
 apply plugin: 'maven'
 
+group 'org.abimon'
+version '1.0'
+
 sourceCompatibility = 1.8
 
 repositories {
     mavenCentral()
-    jcenter()
-    maven { url 'https://maven.abimon.org' }
-    maven { url 'http://dl.bintray.com/kotlin/kotlin-eap-1.2' }
+    jcenter() //This prevents issues with transitive dependencies
+    maven {
+        url "https://jitpack.io"
+    }
+    maven {
+        url "https://maven.abimon.org"
+    }
 }
 
 dependencies {
     compile "org.jetbrains.kotlin:kotlin-stdlib-jre8:$kotlin_version"
-    compile('org.abimon:Imperator:4')
-    compile('org.abimon:Diskord4J:5')
-    compile('org.abimon:Visi:23')
+
+    compile "com.github.austinv11:Discord4J:$discord_version"
+
+    compile "org.abimon:Imperator:$imperator_build"
+    compile "org.abimon:Visi:$visi_build"
+
     testCompile "org.jetbrains.kotlin:kotlin-stdlib-jre8:$kotlin_version"
     testCompile group: 'junit', name: 'junit', version: '4.12'
 }
